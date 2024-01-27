@@ -22,7 +22,7 @@ source ${REPO_ROOT}/scripts/setup_kind_cluster.sh
 
 
 # Get IP of a node where Nova APIServer runs and it's exposed on 32222 hardcoded NodePort.
-nova_node_ip=$(KUBECONFIG="${REPO_ROOT}/kubeconfig-e2e-test-cp" kubectl get nodes -o=jsonpath='{.items[0].status.addresses[0].address}' | xargs)
+nova_node_ip=$(KUBECONFIG="${REPO_ROOT}/kubeconfig-e2e-test-cp" kubectl get nodes -o json|jq -r '.items[]|select(.metadata.name=="cp-control-plane").status.addresses[]|select(.type=="InternalIP").address')
 printf "nova_node_ip: ${nova_node_ip}\n"
 
 export SCHEDULER_IMAGE_REPO="elotl/nova-scheduler-trial"
@@ -54,7 +54,8 @@ then
   mv ${HOME}/.nova ${USER_HOME}
   chown -R ${SUDO_USER} ${USER_HOME}/.nova
   printf "\nDirectory ${HOME}/.nova has been migrated to ${USER_HOME}/.nova\n"
-  printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${USER_HOME}/.nova/nova/nova-kubeconfig:${REPO_ROOT}/kubeconfig-e2e-test-cp:${REPO_ROOT}/kubeconfig-e2e-test-workload-1:${REPO_ROOT}/kubeconfig-e2e-test-workload-2\nkubectl get clusters --context=nova\n\n"
 else
-  export KUBECONFIG=${HOME}/.nova/nova/nova-kubeconfig:${REPO_ROOT}/kubeconfig-e2e-test-cp:${REPO_ROOT}/kubeconfig-e2e-test-workload-1:${REPO_ROOT}/kubeconfig-e2e-test-workload-2
+  USER_HOME=${HOME}
 fi
+
+printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${USER_HOME}/.nova/nova/nova-kubeconfig:${REPO_ROOT}/kubeconfig-e2e-test-cp:${REPO_ROOT}/kubeconfig-e2e-test-workload-1:${REPO_ROOT}/kubeconfig-e2e-test-workload-2\n\nkubectl get clusters --context=nova\n\n"
