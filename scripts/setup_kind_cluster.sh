@@ -1,20 +1,7 @@
-#!/usr/bin/env bash
-
-set -e
-
-cp_cluster="cp"
-workload_cluster_1="workload-1"
-workload_cluster_2="workload-2"
-
-touch ${REPO_ROOT}/kubeconfig-e2e-test-cp
-export KUBECONFIG="${REPO_ROOT}/kubeconfig-e2e-test-cp"
-
-echo "--- creating three kind clusters: cp, workload-1, and workload-2"
 # create workload and Control plane clusters
-NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
-CP_NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
-readonly cp_node_image="kindest/node:${CP_NOVA_K8S_VERSION}"
-readonly node_image="kindest/node:${NOVA_K8S_VERSION}"
+touch ${cp_cluster_config}
+export KUBECONFIG=${cp_cluster_config}
+
 if [[ ${OSTYPE} == 'darwin'* ]]; then
     cat <<EOF | kind create cluster --name ${cp_cluster} --config=-
     kind: Cluster
@@ -43,8 +30,9 @@ else
 EOF
 fi
 
-touch ${REPO_ROOT}/kubeconfig-e2e-test-workload-1
-export KUBECONFIG="${REPO_ROOT}/kubeconfig-e2e-test-workload-1"
+touch ${workload_cluster_1_config}
+export KUBECONFIG=${workload_cluster_1_config}
+
 cat <<EOF | kind create cluster --name ${workload_cluster_1} --config=-
     kind: Cluster
     apiVersion: kind.x-k8s.io/v1alpha4
@@ -53,8 +41,9 @@ cat <<EOF | kind create cluster --name ${workload_cluster_1} --config=-
       image: ${node_image}
 EOF
 
-touch ${REPO_ROOT}/kubeconfig-e2e-test-workload-2
-export KUBECONFIG="${REPO_ROOT}/kubeconfig-e2e-test-workload-2"
+touch ${workload_cluster_2_config}
+export KUBECONFIG=${workload_cluster_2_config}
+
 cat <<EOF | kind create cluster --name ${workload_cluster_2} --config=-
     kind: Cluster
     apiVersion: kind.x-k8s.io/v1alpha4
@@ -62,26 +51,3 @@ cat <<EOF | kind create cluster --name ${workload_cluster_2} --config=-
     - role: control-plane
       image: ${node_image}
 EOF
-
-
-echo "--- clusters created."
-
-# Setup Metal Load Balancer for CP cluster:
-echo "--- configuring Metal Load Balancer for kind-cp cluster..."
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${REPO_ROOT}/kubeconfig-e2e-test-cp"
-
-# Setup Metal Load Balancer for Workload 1 cluster:
-echo "--- configuring Metal Load Balancer for kind-workload-1 cluster..."
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${REPO_ROOT}/kubeconfig-e2e-test-workload-1"
-
-# Setup Metal Load Balancer for Workload 2 cluster:
-echo "--- configuring Metal Load Balancer for kind-workload-2 cluster..."
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${REPO_ROOT}/kubeconfig-e2e-test-workload-2"
-
-echo "--- Metal Load Balancer installed in kind-cp cluster."
-echo "--- Metal Load Balancer installed in kind-workload-1 cluster."
-echo "--- Metal Load Balancer installed in kind-workload-2 cluster."
-echo "--- clusters ready for nova-scheduler and nova-agent deployments."
-echo "--- kubeconfig for kind-cp cluster: ${REPO_ROOT}/kubeconfig-e2e-test-cp"
-echo "--- kubeconfig for kind-workload-1 cluster: ${REPO_ROOT}/kubeconfig-e2e-test-workload-1"
-echo "--- kubeconfig for kind-workload-2 cluster: ${REPO_ROOT}/kubeconfig-e2e-test-workload-2"
