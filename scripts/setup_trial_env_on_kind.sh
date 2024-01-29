@@ -28,7 +28,9 @@ export workload_cluster_2_config="${config_name}-${workload_cluster_2}"
 export CP_NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
 export NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
 
+export api_version="kind.x-k8s.io/v1alpha4"
 export cp_node_image="kindest/node:${CP_NOVA_K8S_VERSION}"
+export cp_node_port=32222
 export node_image="kindest/node:${NOVA_K8S_VERSION}"
 
 printf "\n--- Creating three kind clusters\n\n"
@@ -58,8 +60,6 @@ printf "\nnova_node_ip: ${nova_node_ip}\n"
 
 SCHEDULER_IMAGE_REPO="elotl/nova-scheduler-trial"
 AGENT_IMAGE_REPO="elotl/nova-agent-trial"
-APISERVER_ENDPOINT_PATCH="${nova_node_ip}:32222"
-APISERVER_SERVICE_NODEPORT="32222"
 
 # Deploy Nova control plane to kind-cp
 KUBECONFIG="${cp_cluster_config}" NOVA_NODE_IP=${nova_node_ip} kubectl nova install cp --image-repository "${SCHEDULER_IMAGE_REPO}" --context kind-cp nova
