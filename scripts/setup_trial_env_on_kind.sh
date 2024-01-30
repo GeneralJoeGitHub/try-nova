@@ -37,25 +37,40 @@ printf "\n--- Creating three kind clusters\n\n"
 source ${REPO_ROOT}/scripts/setup_kind_cluster.sh
 printf "\n--- Clusters created\n"
 
+# Get kind information
+kind_json=$(sudo docker inspect kind|jq -c '.[]|select(.Name=="kind")')
+
+# Get subnet for kind bridge: https://kind.sigs.k8s.io/docs/user/loadbalancer/
+prefix=$(echo $kind_json|jq -r '.IPAM.Config[]|select(.Gateway != null)|select(.Gateway|contains(".")).Gateway'|cut -d. -f1-2)
+
+#  Generate Metal Load Balancer config 
+export RANGE_START=${prefix}.255.200
+export RANGE_END=${prefix}.255.255
+envsubst < "${REPO_ROOT}/scripts/metal_lb_addrpool_template.yaml" > "${REPO_ROOT}/metal_lb_addrpool.yaml"
+printf "\n--- Metal LB config:\n\n"
+cat ${REPO_ROOT}/metal_lb_addrpool.yaml
+
 # Setup Metal Load Balancer for CP cluster:
-printf "\n--- Configuring Metal Load Balancer for kind-cp cluster using kubeconfig: ${cp_cluster_config}\n\n"
+printf "\n--- Configuring Metal Load Balancer for kind-${cp_cluster} cluster using kubeconfig: ${cp_cluster_config}\n\n"
 source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${cp_cluster_config}"
 printf "\n--- Metal Load Balancer installed in kind-cp cluster.\n"
 
 # Setup Metal Load Balancer for Workload 1 cluster:
-printf "\n--- Configuring Metal Load Balancer for kind-workload-1 cluster using kubeconfig: ${workload_cluster_1_config}\n\n"
+printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_1} cluster using kubeconfig: ${workload_cluster_1_config}\n\n"
 source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_1_config}"
 printf "\n--- Metal Load Balancer installed in kind-workload-1 cluster.\n"
 
 # Setup Metal Load Balancer for Workload 2 cluster:
-printf "\n--- Configuring Metal Load Balancer for kind-workload-2 cluster using kubeconfig: ${workload_cluster_2_config}\n\n"
+printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_2} cluster using kubeconfig: ${workload_cluster_2_config}\n\n"
 source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_2_config}"
 printf "\n--- Metal Load Balancer installed in kind-workload-2 cluster.\n"
+
+rm ${REPO_ROOT}/metal_lb_addrpool.yaml || true
 
 printf "\n--- Clusters ready for nova-scheduler and nova-agent deployments.\n"
 
 # Get IP of a node where Nova APIServer runs and it's exposed on 32222 hardcoded NodePort.
-nova_node_ip=$(KUBECONFIG="${cp_cluster_config}" kubectl get nodes -o json|jq -r '.items[]|select(.metadata.name=="cp-control-plane").status.addresses[]|select(.type=="InternalIP").address')
+nova_node_ip=$(echo $kind_json|jq -r '.Containers|map(select(.Name=="cp-control-plane"))|.[].IPv4Address'|cut -d/ -f1)
 printf "\nnova_node_ip: ${nova_node_ip}\n"
 
 SCHEDULER_IMAGE_REPO="elotl/nova-scheduler-trial"
