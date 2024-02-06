@@ -21,10 +21,6 @@ export cp_cluster="cp"
 export workload_cluster_1="workload-1"
 export workload_cluster_2="workload-2"
 
-export cp_cluster_config="${config_name}-${cp_cluster}"
-export workload_cluster_1_config="${config_name}-${workload_cluster_1}"
-export workload_cluster_2_config="${config_name}-${workload_cluster_2}"
-
 export CP_NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
 export NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
 
@@ -33,44 +29,58 @@ export cp_node_image="kindest/node:${CP_NOVA_K8S_VERSION}"
 export cp_node_port=32222
 export node_image="kindest/node:${NOVA_K8S_VERSION}"
 
+export cp_cluster_config="${config_name}-${cp_cluster}"
+export workload_cluster_1_config="${config_name}-${workload_cluster_1}"
+export workload_cluster_2_config="${config_name}-${workload_cluster_2}"
+
 printf "\n--- Creating three kind clusters\n\n"
 source ${REPO_ROOT}/scripts/setup_kind_cluster.sh
 printf "\n--- Clusters created\n"
 
 # Get kind information
-kind_json=$(docker inspect kind|jq -c '.[]|select(.Name=="kind")')
+inspect_kind=$(docker inspect kind|jq -c '.[]|select(.Name=="kind")')
 
 # Get subnet for kind bridge: https://kind.sigs.k8s.io/docs/user/loadbalancer/
-prefix=$(echo $kind_json|jq -r '.IPAM.Config[]|select(.Gateway != null)|select(.Gateway|contains(".")).Gateway'|cut -d. -f1-2)
+prefix=$(echo $inspect_kind|jq -r '.IPAM.Config[]|select(.Gateway != null)|select(.Gateway|contains(".")).Subnet'|cut -d. -f1-2)
+metal_lb_addrpool_template="${REPO_ROOT}/scripts/metal_lb_addrpool_template.yaml"
+metal_lb_addrpool="${REPO_ROOT}/metal_lb_addrpool.yaml"
 
-#  Generate Metal Load Balancer config 
-export RANGE_START=${prefix}.255.200
-export RANGE_END=${prefix}.255.255
-envsubst < "${REPO_ROOT}/scripts/metal_lb_addrpool_template.yaml" > "${REPO_ROOT}/metal_lb_addrpool.yaml"
-printf "\n--- Metal LB config:\n\n"
-cat ${REPO_ROOT}/metal_lb_addrpool.yaml
+# Generate Metal Load Balancer config 
+export RANGE_START=${prefix}.100.1
+export RANGE_END=${prefix}.100.100
+envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for CP cluster:
-printf "\n--- Configuring Metal Load Balancer for kind-${cp_cluster} cluster using kubeconfig: ${cp_cluster_config}\n\n"
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${cp_cluster_config}"
-printf "\n--- Metal Load Balancer installed in kind-cp cluster.\n"
+printf "\n--- Configuring Metal Load Balancer for kind-${cp_cluster} cluster using kubeconfig: ${cp_cluster_config}\n"
+source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${cp_cluster_config}" "${metal_lb_addrpool}"
+printf "\n--- Metal Load Balancer installed in kind-${cp_cluster} cluster.\n"
+
+# Generate Metal Load Balancer config 
+export RANGE_START=${prefix}.101.1
+export RANGE_END=${prefix}.101.100
+envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for Workload 1 cluster:
-printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_1} cluster using kubeconfig: ${workload_cluster_1_config}\n\n"
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_1_config}"
-printf "\n--- Metal Load Balancer installed in kind-workload-1 cluster.\n"
+printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_1} cluster using kubeconfig: ${workload_cluster_1_config}\n"
+source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_1_config}" "${metal_lb_addrpool}"
+printf "\n--- Metal Load Balancer installed in kind-${workload_cluster_1} cluster.\n"
+
+# Generate Metal Load Balancer config 
+export RANGE_START=${prefix}.102.1
+export RANGE_END=${prefix}.102.100
+envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for Workload 2 cluster:
-printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_2} cluster using kubeconfig: ${workload_cluster_2_config}\n\n"
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_2_config}"
-printf "\n--- Metal Load Balancer installed in kind-workload-2 cluster.\n"
+printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_2} cluster using kubeconfig: ${workload_cluster_2_config}\n"
+source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_2_config}" "${metal_lb_addrpool}"
+printf "\n--- Metal Load Balancer installed in kind-${workload_cluster_2} cluster.\n"
 
-rm ${REPO_ROOT}/metal_lb_addrpool.yaml
+rm ${metal_lb_addrpool}
 
 printf "\n--- Clusters ready for nova-scheduler and nova-agent deployments.\n"
 
 # Get IP of a node where Nova APIServer runs and it's exposed on 32222 hardcoded NodePort.
-nova_node_ip=$(echo $kind_json|jq -r '.Containers|map(select(.Name=="cp-control-plane"))|.[].IPv4Address'|cut -d/ -f1)
+nova_node_ip=$(echo $inspect_kind|jq -r '.Containers|map(select(.Name=="cp-control-plane"))|.[].IPv4Address'|cut -d/ -f1)
 printf "\nNova node IP: ${nova_node_ip}\n"
 
 SCHEDULER_IMAGE_REPO="elotl/nova-scheduler-trial"
@@ -81,14 +91,16 @@ KUBECONFIG="${cp_cluster_config}" NOVA_NODE_IP=${nova_node_ip} kubectl nova inst
 KUBECONFIG="${workload_cluster_1_config}" kubectl create ns elotl
 KUBECONFIG="${workload_cluster_2_config}" kubectl create ns elotl
 
-while ! KUBECONFIG="${HOME}/.nova/nova/nova-kubeconfig"  kubectl get secret nova-cluster-init-kubeconfig --namespace elotl;
+nova_kubeconfig=".nova/nova/nova-kubeconfig"
+
+while ! KUBECONFIG="${HOME}/${nova_kubeconfig}"  kubectl get secret nova-cluster-init-kubeconfig --namespace elotl;
 do
   printf "\nWaiting for nova-cluster-init-kubeconfig secret creation\n"
   sleep 5
 done
 
-KUBECONFIG="${HOME}/.nova/nova/nova-kubeconfig" kubectl get secret -n elotl nova-cluster-init-kubeconfig -o yaml | KUBECONFIG="${workload_cluster_1_config}" kubectl apply -f -
-KUBECONFIG="${HOME}/.nova/nova/nova-kubeconfig" kubectl get secret -n elotl nova-cluster-init-kubeconfig -o yaml | KUBECONFIG="${workload_cluster_2_config}" kubectl apply -f -
+KUBECONFIG="${HOME}/${nova_kubeconfig}" kubectl get secret -n elotl nova-cluster-init-kubeconfig -o yaml | KUBECONFIG="${workload_cluster_1_config}" kubectl apply -f -
+KUBECONFIG="${HOME}/${nova_kubeconfig}" kubectl get secret -n elotl nova-cluster-init-kubeconfig -o yaml | KUBECONFIG="${workload_cluster_2_config}" kubectl apply -f -
 
 # Deploy Nova agent to kind-workload-1 and kind-workload-2
 KUBECONFIG="${workload_cluster_1_config}" kubectl nova install agent --image-repository "${AGENT_IMAGE_REPO}" --context kind-workload-1 kind-workload-1
@@ -105,4 +117,4 @@ else
   USER_HOME=${HOME}
 fi
 
-printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${USER_HOME}/.nova/nova/nova-kubeconfig:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
+printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${USER_HOME}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
