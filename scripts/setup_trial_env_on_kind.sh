@@ -13,8 +13,10 @@ set -e
 sysctl -wq fs.inotify.max_user_watches=524288
 sysctl -wq fs.inotify.max_user_instances=512
 
-export REPO_ROOT=$(git rev-parse --show-toplevel)
-export config_name="${REPO_ROOT}/kubeconfig-e2e-test"
+PWD_0=${PWD}/${0}
+
+export SCRIPT_DIR=${PWD_0%/*}
+export config_name="${SCRIPT_DIR}/kubeconfig-e2e-test"
 
 # Bootstrap two kind clusters
 export cp_cluster="cp"
@@ -34,7 +36,7 @@ export workload_cluster_1_config="${config_name}-${workload_cluster_1}"
 export workload_cluster_2_config="${config_name}-${workload_cluster_2}"
 
 printf "\n--- Creating three kind clusters\n\n"
-source ${REPO_ROOT}/scripts/setup_kind_cluster.sh
+source ${SCRIPT_DIR}/setup_kind_cluster.sh
 printf "\n--- Clusters created\n"
 
 # Get kind information
@@ -42,8 +44,8 @@ inspect_kind=$(docker inspect kind|jq -c '.[]|select(.Name=="kind")')
 
 # Get subnet for kind bridge: https://kind.sigs.k8s.io/docs/user/loadbalancer/
 prefix=$(echo $inspect_kind|jq -r '.IPAM.Config[]|select(.Gateway != null)|select(.Gateway|contains(".")).Subnet'|cut -d. -f1-2)
-metal_lb_addrpool_template="${REPO_ROOT}/scripts/metal_lb_addrpool_template.yaml"
-metal_lb_addrpool="${REPO_ROOT}/metal_lb_addrpool.yaml"
+metal_lb_addrpool_template="${SCRIPT_DIR}/metal_lb_addrpool_template.yaml"
+metal_lb_addrpool="${SCRIPT_DIR}/metal_lb_addrpool.yaml"
 
 # Generate Metal Load Balancer config 
 export RANGE_START=${prefix}.100.1
@@ -52,7 +54,7 @@ envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for CP cluster:
 printf "\n--- Configuring Metal Load Balancer for kind-${cp_cluster} cluster using kubeconfig: ${cp_cluster_config}\n"
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${cp_cluster_config}" "${metal_lb_addrpool}"
+source ${SCRIPT_DIR}/setup_metal_lb.sh "${cp_cluster_config}" "${metal_lb_addrpool}"
 printf "\n--- Metal Load Balancer installed in kind-${cp_cluster} cluster.\n"
 
 # Generate Metal Load Balancer config 
@@ -62,7 +64,7 @@ envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for Workload 1 cluster:
 printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_1} cluster using kubeconfig: ${workload_cluster_1_config}\n"
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_1_config}" "${metal_lb_addrpool}"
+source ${SCRIPT_DIR}/setup_metal_lb.sh "${workload_cluster_1_config}" "${metal_lb_addrpool}"
 printf "\n--- Metal Load Balancer installed in kind-${workload_cluster_1} cluster.\n"
 
 # Generate Metal Load Balancer config 
@@ -72,7 +74,7 @@ envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for Workload 2 cluster:
 printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_2} cluster using kubeconfig: ${workload_cluster_2_config}\n"
-source ${REPO_ROOT}/scripts/setup_metal_lb.sh "${workload_cluster_2_config}" "${metal_lb_addrpool}"
+source ${SCRIPT_DIR}/setup_metal_lb.sh "${workload_cluster_2_config}" "${metal_lb_addrpool}"
 printf "\n--- Metal Load Balancer installed in kind-${workload_cluster_2} cluster.\n"
 
 rm ${metal_lb_addrpool}
@@ -110,8 +112,8 @@ if [ "${SUDO_USER}" ];
 then
   USER_HOME=$(getent passwd ${SUDO_USER}|cut -d: -f6)
   mv ${HOME}/.nova ${USER_HOME}
-  chown -R ${SUDO_USER}:${SUDO_USER} ${USER_HOME}/.nova
-  chown ${SUDO_USER}:${SUDO_USER} ${config_name}-*
+  chown -R ${SUDO_UID}:${SUDO_GID} ${USER_HOME}/.nova
+  chown ${SUDO_UID}:${SUDO_GID} ${config_name}-*
   printf "\nDirectory ${HOME}/.nova has been migrated to ${USER_HOME}/.nova\n"
 else
   USER_HOME=${HOME}
