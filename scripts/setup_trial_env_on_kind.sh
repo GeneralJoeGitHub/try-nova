@@ -14,26 +14,26 @@ sysctl -wq fs.inotify.max_user_watches=524288
 sysctl -wq fs.inotify.max_user_instances=512
 
 PWD_0=${PWD}/${0}
+SCRIPT_DIR=${PWD_0%/*}
 
-export SCRIPT_DIR=${PWD_0%/*}
-export config_name="${SCRIPT_DIR}/kubeconfig-e2e-test"
+config_name="${SCRIPT_DIR}/kubeconfig-e2e-test"
 
 # Bootstrap two kind clusters
-export cp_cluster="cp"
-export workload_cluster_1="workload-1"
-export workload_cluster_2="workload-2"
+cp_cluster="cp"
+workload_cluster_1="workload-1"
+workload_cluster_2="workload-2"
 
-export CP_NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
-export NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
+CP_NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
+NOVA_K8S_VERSION=${NOVA_E2E_K8S_VERSION:-"v1.25.1"}
 
-export api_version="kind.x-k8s.io/v1alpha4"
-export cp_node_image="kindest/node:${CP_NOVA_K8S_VERSION}"
-export cp_node_port=32222
-export node_image="kindest/node:${NOVA_K8S_VERSION}"
+api_version="kind.x-k8s.io/v1alpha4"
+cp_node_image="kindest/node:${CP_NOVA_K8S_VERSION}"
+cp_node_port=32222
+node_image="kindest/node:${NOVA_K8S_VERSION}"
 
-export cp_cluster_config="${config_name}-${cp_cluster}"
-export workload_cluster_1_config="${config_name}-${workload_cluster_1}"
-export workload_cluster_2_config="${config_name}-${workload_cluster_2}"
+cp_cluster_config="${config_name}-${cp_cluster}"
+workload_cluster_1_config="${config_name}-${workload_cluster_1}"
+workload_cluster_2_config="${config_name}-${workload_cluster_2}"
 
 printf "\n--- Creating three kind clusters\n\n"
 source ${SCRIPT_DIR}/setup_kind_cluster.sh

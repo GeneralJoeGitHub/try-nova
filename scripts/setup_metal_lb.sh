@@ -1,5 +1,5 @@
 # Setup Metal Load Balancer for a workload cluster
-printf "\n--- Metal LB config:\n\n$(cat $2)\n"
+printf "\n--- Metal LB config:\n\n$(cat $2)\n\n"
 
 KUBECONFIG="$1" kubectl apply -f "https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml"
 KUBECONFIG="$1" kubectl patch -n metallb-system deploy controller --type='json' -p '[{"op": "add", "path": "/spec/strategy/rollingUpdate/maxUnavailable", "value": 0}]'
