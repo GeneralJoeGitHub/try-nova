@@ -10,15 +10,25 @@
 
 set -e
 
+if [ "${SUDO_USER}" ];
+then
+  user_home=$(getent passwd ${SUDO_USER}|cut -d: -f6)
+  if [ -d ${user_home}/.nova ];
+  then
+    printf "\nDirectory ${user_home}/.nova exists.  Please backup and/or remove directory and try again.\n\n"
+    exit
+  fi
+fi
+
 sysctl -wq fs.inotify.max_user_watches=524288
 sysctl -wq fs.inotify.max_user_instances=512
 
-PWD_0=${PWD}/${0}
-SCRIPT_DIR=${PWD_0%/*}
+pwd_0=${PWD}/${0#./}
+script_dir=${pwd_0%/*}
 
-config_name="${SCRIPT_DIR}/kubeconfig-e2e-test"
+cluster_config_prefix="${script_dir}/kubeconfig-e2e-test-"
 
-# Bootstrap two kind clusters
+# Bootstrap kind clusters
 cp_cluster="cp"
 workload_cluster_1="workload-1"
 workload_cluster_2="workload-2"
@@ -31,12 +41,12 @@ cp_node_image="kindest/node:${CP_NOVA_K8S_VERSION}"
 cp_node_port=32222
 node_image="kindest/node:${NOVA_K8S_VERSION}"
 
-cp_cluster_config="${config_name}-${cp_cluster}"
-workload_cluster_1_config="${config_name}-${workload_cluster_1}"
-workload_cluster_2_config="${config_name}-${workload_cluster_2}"
+cp_cluster_config="${cluster_config_prefix}${cp_cluster}"
+workload_cluster_1_config="${cluster_config_prefix}${workload_cluster_1}"
+workload_cluster_2_config="${cluster_config_prefix}${workload_cluster_2}"
 
-printf "\n--- Creating three kind clusters\n\n"
-source ${SCRIPT_DIR}/setup_kind_cluster.sh
+printf "\n--- Creating kind clusters\n\n"
+source ${script_dir}/setup_kind_cluster.sh
 printf "\n--- Clusters created\n"
 
 # Get kind information
@@ -44,56 +54,37 @@ inspect_kind=$(docker inspect kind|jq -c '.[]|select(.Name=="kind")')
 
 # Get subnet for kind bridge: https://kind.sigs.k8s.io/docs/user/loadbalancer/
 prefix=$(echo $inspect_kind|jq -r '.IPAM.Config[]|select(.Gateway != null)|select(.Gateway|contains(".")).Subnet'|cut -d. -f1-2)
-metal_lb_addrpool_template="${SCRIPT_DIR}/metal_lb_addrpool_template.yaml"
-metal_lb_addrpool="${SCRIPT_DIR}/metal_lb_addrpool.yaml"
-
-# Generate Metal Load Balancer config 
-export RANGE_START=${prefix}.100.1
-export RANGE_END=${prefix}.100.100
-envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for CP cluster:
 printf "\n--- Configuring Metal Load Balancer for kind-${cp_cluster} cluster using kubeconfig: ${cp_cluster_config}\n"
-source ${SCRIPT_DIR}/setup_metal_lb.sh "${cp_cluster_config}" "${metal_lb_addrpool}"
+source ${script_dir}/setup_metal_lb.sh "${cp_cluster_config}" "${prefix}.100.1" "${prefix}.100.100"
 printf "\n--- Metal Load Balancer installed in kind-${cp_cluster} cluster.\n"
-
-# Generate Metal Load Balancer config 
-export RANGE_START=${prefix}.101.1
-export RANGE_END=${prefix}.101.100
-envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for Workload 1 cluster:
 printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_1} cluster using kubeconfig: ${workload_cluster_1_config}\n"
-source ${SCRIPT_DIR}/setup_metal_lb.sh "${workload_cluster_1_config}" "${metal_lb_addrpool}"
+source ${script_dir}/setup_metal_lb.sh "${workload_cluster_1_config}" "${prefix}.101.1" "${prefix}.101.100"
 printf "\n--- Metal Load Balancer installed in kind-${workload_cluster_1} cluster.\n"
-
-# Generate Metal Load Balancer config 
-export RANGE_START=${prefix}.102.1
-export RANGE_END=${prefix}.102.100
-envsubst < "${metal_lb_addrpool_template}" > "${metal_lb_addrpool}"
 
 # Setup Metal Load Balancer for Workload 2 cluster:
 printf "\n--- Configuring Metal Load Balancer for kind-${workload_cluster_2} cluster using kubeconfig: ${workload_cluster_2_config}\n"
-source ${SCRIPT_DIR}/setup_metal_lb.sh "${workload_cluster_2_config}" "${metal_lb_addrpool}"
+source ${script_dir}/setup_metal_lb.sh "${workload_cluster_2_config}" "${prefix}.102.1" "${prefix}.102.100"
 printf "\n--- Metal Load Balancer installed in kind-${workload_cluster_2} cluster.\n"
-
-rm ${metal_lb_addrpool}
 
 printf "\n--- Clusters ready for nova-scheduler and nova-agent deployments.\n"
 
 # Get IP of a node where Nova APIServer runs and it's exposed on 32222 hardcoded NodePort.
-nova_node_ip=$(echo $inspect_kind|jq -r '.Containers|map(select(.Name=="cp-control-plane"))|.[].IPv4Address'|cut -d/ -f1)
+nova_node_ip=$(echo $inspect_kind|jq --arg container_name ${cp_cluster}-control-plane -r '.Containers|map(select(.Name==$container_name))|.[].IPv4Address'|cut -d/ -f1)
 printf "\nNova node IP: ${nova_node_ip}\n"
 
-SCHEDULER_IMAGE_REPO="elotl/nova-scheduler-trial"
-AGENT_IMAGE_REPO="elotl/nova-agent-trial"
+scheduler_image_repo="elotl/nova-scheduler-trial"
+agent_image_repo="elotl/nova-agent-trial"
+nova_kubeconfig=".nova/nova/nova-kubeconfig"
 
 # Deploy Nova control plane to kind-cp
-KUBECONFIG="${cp_cluster_config}" NOVA_NODE_IP=${nova_node_ip} kubectl nova install cp --image-repository "${SCHEDULER_IMAGE_REPO}" --context kind-cp nova
+KUBECONFIG="${cp_cluster_config}" NOVA_NODE_IP=${nova_node_ip} kubectl nova install cp --image-repository "${scheduler_image_repo}" --context kind-${cp_cluster} nova
+
 KUBECONFIG="${workload_cluster_1_config}" kubectl create ns elotl
 KUBECONFIG="${workload_cluster_2_config}" kubectl create ns elotl
-
-nova_kubeconfig=".nova/nova/nova-kubeconfig"
 
 while ! KUBECONFIG="${HOME}/${nova_kubeconfig}"  kubectl get secret nova-cluster-init-kubeconfig --namespace elotl;
 do
@@ -105,18 +96,15 @@ KUBECONFIG="${HOME}/${nova_kubeconfig}" kubectl get secret -n elotl nova-cluster
 KUBECONFIG="${HOME}/${nova_kubeconfig}" kubectl get secret -n elotl nova-cluster-init-kubeconfig -o yaml | KUBECONFIG="${workload_cluster_2_config}" kubectl apply -f -
 
 # Deploy Nova agent to kind-workload-1 and kind-workload-2
-KUBECONFIG="${workload_cluster_1_config}" kubectl nova install agent --image-repository "${AGENT_IMAGE_REPO}" --context kind-workload-1 kind-workload-1
-KUBECONFIG="${workload_cluster_2_config}" kubectl nova install agent --image-repository "${AGENT_IMAGE_REPO}" --context kind-workload-2 kind-workload-2
+KUBECONFIG="${workload_cluster_1_config}" kubectl nova install agent --image-repository "${agent_image_repo}" --context kind-${workload_cluster_1} kind-${workload_cluster_1}
+KUBECONFIG="${workload_cluster_2_config}" kubectl nova install agent --image-repository "${agent_image_repo}" --context kind-${workload_cluster_2} kind-${workload_cluster_2}
 
-if [ "${SUDO_USER}" ];
+if [ "${user_home}" ];
 then
-  USER_HOME=$(getent passwd ${SUDO_USER}|cut -d: -f6)
-  mv ${HOME}/.nova ${USER_HOME}
-  chown -R ${SUDO_UID}:${SUDO_GID} ${USER_HOME}/.nova
-  chown ${SUDO_UID}:${SUDO_GID} ${config_name}-*
-  printf "\nDirectory ${HOME}/.nova has been migrated to ${USER_HOME}/.nova\n"
-else
-  USER_HOME=${HOME}
+  mv ${HOME}/.nova ${user_home}
+  chown -R ${SUDO_UID}:${SUDO_GID} ${user_home}/.nova
+  chown ${SUDO_UID}:${SUDO_GID} ${cluster_config_prefix}*
+  printf "\nDirectory ${HOME}/.nova has been migrated to ${user_home}/.nova\n"
 fi
 
-printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${USER_HOME}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
+printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${user_home}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
