@@ -107,4 +107,4 @@ then
   printf "\nDirectory ${HOME}/.nova has been migrated to ${user_home}/.nova\n"
 fi
 
-printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=${user_home}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
+printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=\${HOME}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
