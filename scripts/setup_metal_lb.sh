@@ -1,6 +1,6 @@
 # Setup Metal Load Balancer for a workload cluster
 
-metal_lb_template='
+metal_lb_template="
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -15,12 +15,12 @@ kind: L2Advertisement
 metadata:
   name: empty
   namespace: metallb-system
-'
+"
 
-KUBECONFIG=$1
+export KUBECONFIG=${1}
 metal_lb_config="${metal_lb_template/<RANGE_START-RANGE_END>/$2-$3}"
 
-printf "\n--- Metal LB config:\n\n${metal_lb_config}\n\n"
+printf "\n--- Metal LB config:\n${metal_lb_config}\n"
 
 kubectl apply -f "https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml"
 kubectl patch -n metallb-system deploy controller --type='json' -p '[{"op": "add", "path": "/spec/strategy/rollingUpdate/maxUnavailable", "value": 0}]'

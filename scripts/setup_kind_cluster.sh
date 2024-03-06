@@ -1,38 +1,27 @@
 # create workload and Control plane clusters
-touch ${cp_cluster_config}
-export KUBECONFIG=${cp_cluster_config}
 
-cat <<EOF | kind create cluster --name ${cp_cluster} --config=-
-    kind: Cluster
-    apiVersion: ${api_version}
-    nodes:
-    - role: control-plane
-      image: ${cp_node_image}
-      extraPortMappings:
-      - containerPort: ${cp_node_port}
-        hostPort: 80
-      - containerPort: ${cp_node_port}
-        hostPort: 443
-EOF
+config_template="
+kind: Cluster
+apiVersion: ${3}
+nodes:
+  - role: control-plane
+    image: ${4}
+    extraPortMappings:
+    - containerPort: ${5}
+      hostPort: 80
+    - containerPort: ${5}
+      hostPort: 443
+"
 
-touch ${workload_cluster_1_config}
-export KUBECONFIG=${workload_cluster_1_config}
+export KUBECONFIG=${1}
+touch ${1}
 
-cat <<EOF | kind create cluster --name ${workload_cluster_1} --config=-
-    kind: Cluster
-    apiVersion: ${api_version}
-    nodes:
-    - role: control-plane
-      image: ${node_image}
-EOF
+if [ "${5}" ];
+then
+  config="${config_template}"
+else
+  config="${config_template%extraPortMappings:*}"
+fi
 
-touch ${workload_cluster_2_config}
-export KUBECONFIG=${workload_cluster_2_config}
-
-cat <<EOF | kind create cluster --name ${workload_cluster_2} --config=-
-    kind: Cluster
-    apiVersion: ${api_version}
-    nodes:
-    - role: control-plane
-      image: ${node_image}
-EOF
+printf "\n--- ${2} node config:\n${config}\n"
+echo "${config}" | kind create cluster --name ${2} --config=-
