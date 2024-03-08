@@ -25,3 +25,9 @@ fi
 
 printf "\n--- ${2} node config:\n${config}\n"
 echo "${config}" | kind create cluster --name ${2} --config=-
+
+if [ "${SUDO_USER}" ];
+then
+  printf "\nChanging ownership of ${1} to \"${SUDO_USER}\"...\n"
+  chown ${SUDO_UID}:${SUDO_GID} ${1}
+fi

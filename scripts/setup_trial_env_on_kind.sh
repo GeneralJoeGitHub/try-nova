@@ -10,24 +10,29 @@
 
 set -e
 
-if [ "${USER}" != "root" ];
+# Determine executing user and set (or unset) variable to run sudo for commands where necessary
+if [ "${USER}" == "root" ];
 then
-  printf "\n--- Parts of this setup require elevated privileges.  If prompted, please enter your password...\n"
-  sudo="sudo"
+  unset sudo
 elif [ "${SUDO_USER}" ];
 then
   printf "\n--- Please run this script without sudo\n\n"
   exit 1
 else
-  unset sudo
+  printf "\n--- Parts of this setup require elevated privileges.  If prompted, please enter your password...\n"
+  sudo="sudo"
 fi
 
+# In some Linux environments, the default inotify resource configuration might not allow you to create sufficient Kind clusters to successfully install Nova.
+# https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
 ${sudo} sysctl -wq fs.inotify.max_user_watches=524288
 ${sudo} sysctl -wq fs.inotify.max_user_instances=512
 
+# Determine path of script
 pwd_0=${PWD}/${0#./}
 script_dir=${pwd_0%/*}
 
+# Setting variables
 cp_cluster="cp"
 workload_cluster_1="workload-1"
 workload_cluster_2="workload-2"
@@ -84,7 +89,7 @@ printf "\n--- Clusters ready for nova-scheduler and nova-agent deployments.\n"
 
 # Get IP of a node where Nova APIServer runs
 nova_node_ip=$(echo ${inspect_kind}|jq --arg container_name ${cp_cluster}-control-plane -r '.Containers|map(select(.Name==$container_name))|.[].IPv4Address'|cut -d/ -f1)
-printf "\nNova node IP: ${nova_node_ip}\n"
+printf "\nNova node IP: ${nova_node_ip}\n\n"
 
 # Deploy Nova control plane to kind-cp
 KUBECONFIG="${cp_cluster_config}" NOVA_NODE_IP=${nova_node_ip} kubectl nova install cp --image-repository "${scheduler_image_repo}" --context kind-${cp_cluster} nova
@@ -104,4 +109,4 @@ KUBECONFIG="${HOME}/${nova_kubeconfig}" kubectl get secret -n elotl nova-cluster
 KUBECONFIG="${workload_cluster_1_config}" kubectl nova install agent --image-repository "${agent_image_repo}" --context kind-${workload_cluster_1} kind-${workload_cluster_1}
 KUBECONFIG="${workload_cluster_2_config}" kubectl nova install agent --image-repository "${agent_image_repo}" --context kind-${workload_cluster_2} kind-${workload_cluster_2}
 
-printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=\${HOME}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
+printf "\nTo interact with Nova, run:\n\nexport KUBECONFIG=\${HOME}/.kube/config:\${HOME}/${nova_kubeconfig}:${cp_cluster_config}:${workload_cluster_1_config}:${workload_cluster_2_config}\n\nkubectl get clusters --context=nova\n\n"
